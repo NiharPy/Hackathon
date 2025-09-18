@@ -65,6 +65,10 @@ const SuperAdminSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  refreshToken: {
+    type: String, // JWT refresh token for session management
+    default: null
+  },
   mineMap: {
     type: String, // path or cloud storage URL for uploaded 2D mine map image
     required: false
