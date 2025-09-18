@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import SuperAdmin from "../models/superAdminSchema.js"; // adjust path as needed
+import cloudinary from "../config/cloudinary.js";
 
 // Generate tokens
 const generateAccessToken = (id) => {
@@ -154,3 +155,52 @@ export const addVehicle = async (req, res) => {
     return res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
+
+export const uploadMineMap = async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+  
+      // Upload file to Cloudinary
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder: "mine_maps" },
+        async (error, result) => {
+          if (error) {
+            console.error("Cloudinary Upload Error:", error);
+            return res.status(500).json({ message: "Cloudinary upload failed" });
+          }
+  
+          // Find SuperAdmin by ID
+          const superAdmin = await SuperAdmin.findById(req.user.id);
+          if (!superAdmin) {
+            return res.status(404).json({ message: "SuperAdmin not found" });
+        }
+  
+          // Update SuperAdmin with new mine map URL
+          superAdmin.mineMap = result.secure_url;
+          superAdmin.updatedAt = Date.now();
+  
+          await superAdmin.save();
+  
+          return res.status(200).json({
+            message: "Mine map uploaded successfully",
+            mineMapUrl: superAdmin.mineMap,
+            superAdmin: {
+              id: superAdmin._id,
+              email: superAdmin.email,
+              mineMap: superAdmin.mineMap,
+            },
+          });
+        }
+      );
+  
+      // Pipe buffer to Cloudinary
+      uploadStream.end(req.file.buffer);
+  
+    } catch (error) {
+      console.error("UploadMineMap Error:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
