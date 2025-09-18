@@ -750,3 +750,41 @@ export const uploadMineMap = async (req, res) => {
       return res.status(500).json({ message: "Internal Server Error" });
     }
   };
+
+  export const getProgressPin = async (req, res) => {
+    try {
+      const { pinId } = req.params;
+  
+      // ✅ Validate MongoDB ObjectId
+      if (!mongoose.Types.ObjectId.isValid(pinId)) {
+        return res.status(400).json({ message: "Invalid progress pin ID" });
+      }
+  
+      // ✅ Find the SuperAdmin document that contains this progress pin
+      const superAdmin = await SuperAdmin.findOne({
+        "pins._id": pinId,
+        "pins.type": "Progress", // ensure it's a progress pin
+      });
+  
+      if (!superAdmin) {
+        return res.status(404).json({ message: "Progress pin not found" });
+      }
+  
+      // ✅ Extract the pin
+      const progressPin = superAdmin.pins.id(pinId);
+  
+      if (!progressPin || progressPin.type !== "Progress") {
+        return res
+          .status(404)
+          .json({ message: "Progress pin not found in pins array" });
+      }
+  
+      res.status(200).json({
+        message: "Progress pin retrieved successfully",
+        progressPin,
+      });
+    } catch (error) {
+      console.error("Error fetching progress pin:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  };

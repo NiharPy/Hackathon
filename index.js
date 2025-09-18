@@ -18,11 +18,6 @@ app.use(
     })
   );
   
-  // Handle preflight for all routes
-  app.options("*", cors({
-    origin: "http://localhost:3000",
-    credentials: true,
-  }));
   
 
 mongoose.connect(mongoConfig.mongoUri)
