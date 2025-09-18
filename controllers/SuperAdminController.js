@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import SuperAdmin from "../models/superAdminSchema.js"; // adjust path as needed
+import OpenAI from "openai";
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 const GOOGLE_API_KEY = GOOGLE_MAPS_API_KEY;
 
@@ -906,6 +907,150 @@ export const uploadMineMap = async (req, res) => {
       });
     } catch (error) {
       console.error("AddSafetyNode Error:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
+
+  export const startShift = async (req, res) => {
+    try {
+      const { name } = req.body;
+      const superAdminId = req.user.id; // ✅ injected by auth-superadmin
+  
+      if (!name) {
+        return res.status(400).json({ message: "Name is required to start shift" });
+      }
+  
+      const superAdmin = await SuperAdmin.findById(superAdminId);
+      if (!superAdmin) {
+        return res.status(404).json({ message: "SuperAdmin not found" });
+      }
+  
+      // Check for active shift
+      const activeShift = superAdmin.shifts.find((shift) => !shift.endTime);
+      if (activeShift) {
+        return res.status(400).json({ message: "You already have an active shift" });
+      }
+  
+      // Log new shift
+      superAdmin.shifts.push({
+        name,
+        startTime: new Date(),
+      });
+  
+      await superAdmin.save();
+  
+      res.status(200).json({ message: "Shift started successfully" });
+    } catch (err) {
+      console.error("startShift error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  };
+  
+  
+  // End Shift
+  export const endShift = async (req, res) => {
+    try {
+      const superAdminId = req.user.id; // ✅ injected by auth-superadmin
+  
+      const superAdmin = await SuperAdmin.findById(superAdminId);
+      if (!superAdmin) {
+        return res.status(404).json({ message: "SuperAdmin not found" });
+      }
+  
+      // Find active shift
+      const activeShift = superAdmin.shifts.find((shift) => !shift.endTime);
+      if (!activeShift) {
+        return res.status(400).json({ message: "No active shift found" });
+      }
+  
+      // Close the shift
+      activeShift.endTime = new Date();
+      await superAdmin.save();
+  
+      res.status(200).json({
+        message: "Shift ended successfully",
+        shift: activeShift,
+      });
+    } catch (err) {
+      console.error("endShift error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  };
+  
+  // Optional: Get all shifts
+  export const getShifts = async (req, res) => {
+    try {
+      const { superAdminId } = req.params;
+      const superAdmin = await SuperAdmin.findById(superAdminId);
+  
+      if (!superAdmin) return res.status(404).json({ message: "SuperAdmin not found" });
+  
+      res.status(200).json({ shifts: superAdmin.shifts });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Server error" });
+    }
+  };
+
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+  
+  export const summarizePinLog = async (req, res) => {
+    try {
+      const { pinId } = req.params;
+      const superAdminId = req.user?.id; // ✅ from auth-superadmin middleware
+  
+      if (!superAdminId) {
+        return res.status(401).json({ message: "Unauthorized: Missing superAdminId" });
+      }
+  
+      // Find pin under the logged-in SuperAdmin
+      const superAdmin = await SuperAdmin.findOne({
+        _id: superAdminId,
+        "pins._id": pinId,
+      });
+  
+      if (!superAdmin) {
+        return res.status(404).json({ message: "Pin not found for this SuperAdmin" });
+      }
+  
+      const pin = superAdmin.pins.id(pinId);
+      if (!pin || !pin.description) {
+        return res
+          .status(400)
+          .json({ message: "Pin has no description to summarize" });
+      }
+  
+      // Call OpenAI to summarize
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an assistant that summarizes mining safety and progress logs clearly and concisely.",
+          },
+          {
+            role: "user",
+            content: `Summarize this mining log entry in 2-3 sentences: ${pin.description}`,
+          },
+        ],
+      });
+  
+      const summary = completion.choices[0].message.content.trim();
+  
+      // Save back into pin
+      pin.summary = summary;
+      await superAdmin.save();
+  
+      res.status(200).json({
+        message: "Summary generated successfully",
+        pinId,
+        summary,
+      });
+    } catch (error) {
+      console.error("SummarizePinLog Error:", error);
       res.status(500).json({ message: "Internal Server Error" });
     }
   };

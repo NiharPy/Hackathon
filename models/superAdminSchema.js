@@ -19,6 +19,7 @@ const PinSchema = new mongoose.Schema({
   description: {
     type: String
   },
+  summary: { type: String },
   images: [{ type: String }], 
   voiceNote: {
     type: String
@@ -97,6 +98,13 @@ const SuperAdminSchema = new mongoose.Schema({
   pins: [PinSchema],          // Hazard + Progress pins
   safetyNodes: [SafetyNodeSchema], // ✅ separate array for Safety Nodes
   vehicles: [VehicleSchema], 
+  shifts: [
+    {
+      name: { type: String, required: true },
+      startTime: { type: Date, required: true },
+      endTime: { type: Date, default: null } // endTime will be updated later
+    }
+  ],
   createdAt: {
     type: Date,
     default: Date.now

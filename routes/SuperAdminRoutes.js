@@ -1,6 +1,7 @@
 import express from 'express';
 import {loginSuperAdmin, signupSuperAdmin, addVehicle, uploadMineMap, addHazardPin, getSafetyHazardPin, listVehicles, placeDetails, getDirectionsAndETA, streamTracking, addProgressPin, getProgressPin, getMineMapWithPins, addSafetyNode, refreshSuperAdminToken} from '../controllers/SuperAdminController.js';
 import authSuperAdmin from "../middleware/auth-superadmin.js";
+import { startShift,endShift,getShifts,summarizePinLog } from '../controllers/SuperAdminController.js';
 import upload from "../middleware/multer.js";
 const router = express.Router();
 
@@ -40,5 +41,9 @@ router.get("/track/stream/:reg",authSuperAdmin ,streamTracking);
 router.get("/mine-map", authSuperAdmin, getMineMapWithPins);
 router.post("/add/SafetyNode", authSuperAdmin, addSafetyNode);
 router.post("/refresh-token", authSuperAdmin, refreshSuperAdminToken);
+router.post("/shift/start", authSuperAdmin,startShift);
+router.post("/shift/end", authSuperAdmin, endShift);
+router.get("/:superAdminId/shifts", getShifts);
+router.post("/:pinId/summarize",authSuperAdmin, summarizePinLog);
 
 export default router;
