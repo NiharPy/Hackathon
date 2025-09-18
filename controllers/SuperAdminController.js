@@ -9,6 +9,8 @@ if (!GOOGLE_API_KEY) {
   console.error("[Config] Missing GOOGLE_MAPS_API_KEY / GOOGLE_API_KEY in environment");
 }
 const TICK_SEC_DEFAULT = 5;
+import cloudinary from "../config/cloudinary.js";
+import mongoose from "mongoose";
 
 // Generate tokens
 const generateAccessToken = (id) => {
@@ -21,45 +23,63 @@ const generateRefreshToken = (id) => {
 
 // Login Controller
 export const loginSuperAdmin = async (req, res) => {
-  try {
-    console.log("Incoming body:", req.body);  // 👈 Add this
-    const { email, password } = req.body;
-
-    // 1. Find SuperAdmin by email
-    const superAdmin = await SuperAdmin.findOne({ email });
-    if (!superAdmin) {
-      return res.status(404).json({ message: "SuperAdmin not found" });
-    }
-
-    // 2. Validate password
-    const isPasswordValid = await bcrypt.compare(password, superAdmin.passwordHash);
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
-
-    // 3. Generate tokens
-    const accessToken = generateAccessToken(superAdmin._id);
-    const refreshToken = generateRefreshToken(superAdmin._id);
-
-    // 4. Save refreshToken in DB
-    superAdmin.refreshToken = refreshToken;
-    await superAdmin.save();
-
-    // 5. Send response
-    res.status(200).json({
-      message: "Login successful",
-      accessToken,
-      refreshToken,
-      superAdmin: {
-        id: superAdmin._id,
-        email: superAdmin.email
+    try {
+      console.log("Incoming body:", req.body);
+      const { email, password } = req.body;
+  
+      // 1. Find SuperAdmin by email
+      const superAdmin = await SuperAdmin.findOne({ email });
+      if (!superAdmin) {
+        return res.status(404).json({ message: "SuperAdmin not found" });
       }
-    });
-  } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-};
+  
+      // 2. Validate password
+      const isPasswordValid = await bcrypt.compare(password, superAdmin.passwordHash);
+      if (!isPasswordValid) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+  
+      // 3. Generate tokens
+      const accessToken = generateAccessToken(superAdmin._id);
+      const refreshToken = generateRefreshToken(superAdmin._id);
+  
+      // 4. Save refreshToken in DB
+      superAdmin.refreshToken = refreshToken;
+      await superAdmin.save();
+  
+      // 5. Set tokens as HTTP-only cookies (optional, you can skip this if not needed)
+      res.cookie("access_token", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 15 * 60 * 1000, // 15 minutes
+      });
+  
+      res.cookie("refresh_token", refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+  
+      // 6. Send response including tokens in the body
+      res.status(200).json({
+        message: "Login successful",
+        superAdmin: {
+          id: superAdmin._id,
+          email: superAdmin.email,
+        },
+        tokens: {
+          accessToken,
+          refreshToken,
+        },
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
+  
 
 export const signupSuperAdmin = async (req, res) => {
     try {
@@ -483,3 +503,168 @@ export const streamTracking = async (req, res) => {
     if (!res.headersSent) return res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
+export const uploadMineMap = async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+  
+      // Upload file to Cloudinary
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder: "mine_maps" },
+        async (error, result) => {
+          if (error) {
+            console.error("Cloudinary Upload Error:", error);
+            return res.status(500).json({ message: "Cloudinary upload failed" });
+          }
+  
+          // Find SuperAdmin by ID
+          const superAdmin = await SuperAdmin.findById(req.user.id);
+          if (!superAdmin) {
+            return res.status(404).json({ message: "SuperAdmin not found" });
+        }
+  
+          // Update SuperAdmin with new mine map URL
+          superAdmin.mineMap = result.secure_url;
+          superAdmin.updatedAt = Date.now();
+  
+          await superAdmin.save();
+  
+          return res.status(200).json({
+            message: "Mine map uploaded successfully",
+            mineMapUrl: superAdmin.mineMap,
+            superAdmin: {
+              id: superAdmin._id,
+              email: superAdmin.email,
+              mineMap: superAdmin.mineMap,
+            },
+          });
+        }
+      );
+  
+      // Pipe buffer to Cloudinary
+      uploadStream.end(req.file.buffer);
+  
+    } catch (error) {
+      console.error("UploadMineMap Error:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
+
+  export const addHazardPin = async (req, res) => {
+    try {
+      const { type, hazardLevel, coordinates, description } = req.body;
+  
+      // ✅ Validate type
+      if (type !== "Hazard") {
+        return res.status(400).json({ message: "Type must be 'Hazard'" });
+      }
+  
+      // ✅ Validate hazard level
+      if (!["Yellow", "Orange", "Red"].includes(hazardLevel)) {
+        return res.status(400).json({ message: "Invalid hazard level" });
+      }
+  
+      // ✅ Validate coordinates
+      if (!coordinates || !coordinates.x || !coordinates.y) {
+        return res.status(400).json({ message: "Coordinates (x, y) are required" });
+      }
+  
+      // ✅ Inject SuperAdmin from JWT
+      const superAdmin = await SuperAdmin.findById(req.user.id);
+      if (!superAdmin) {
+        return res.status(404).json({ message: "SuperAdmin not found" });
+      }
+  
+      // Upload images (up to 5)
+      let imageUrls = [];
+      if (req.files?.images) {
+        for (const file of req.files.images) {
+          const uploaded = await new Promise((resolve, reject) => {
+            cloudinary.uploader.upload_stream(
+              { folder: "pins/images" },
+              (error, result) => {
+                if (error) reject(error);
+                else resolve(result);
+              }
+            ).end(file.buffer);
+          });
+          imageUrls.push(uploaded.secure_url);
+        }
+      }
+  
+      // Upload voice note (optional)
+      let voiceNoteUrl = null;
+      if (req.files?.voiceNote?.[0]) {
+        const uploaded = await new Promise((resolve, reject) => {
+          cloudinary.uploader.upload_stream(
+            { folder: "pins/voicenotes", resource_type: "auto" },
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          ).end(req.files.voiceNote[0].buffer);
+        });
+        voiceNoteUrl = uploaded.secure_url;
+      }
+  
+      // ✅ Create new pin
+      const newPin = {
+        type,
+        hazardLevel,
+        coordinates,
+        description,
+        images: imageUrls,
+        voiceNote: voiceNoteUrl,
+      };
+  
+      // Save to SuperAdmin
+      superAdmin.pins.push(newPin);
+      superAdmin.updatedAt = Date.now();
+      await superAdmin.save();
+  
+      return res.status(201).json({
+        message: "Hazard pin added successfully",
+        pin: newPin,
+      });
+    } catch (error) {
+      console.error("AddHazardPin Error:", error);
+      return res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
+
+
+  export const getSafetyHazardPin = async (req, res) => {
+    try {
+      const { pinId } = req.params;
+  
+      // Validate MongoDB ObjectId
+      if (!mongoose.Types.ObjectId.isValid(pinId)) {
+        return res.status(400).json({ message: "Invalid hazard pin ID" });
+      }
+  
+      // Find the SuperAdmin document that contains this pin
+      const superAdmin = await SuperAdmin.findOne({ "pins._id": pinId });
+  
+      if (!superAdmin) {
+        return res.status(404).json({ message: "Safety hazard pin not found" });
+      }
+  
+      // Find the pin in the pins array
+      const hazardPin = superAdmin.pins.id(pinId);
+  
+      // Extra check (should not be necessary, but safe)
+      if (!hazardPin) {
+        return res.status(404).json({ message: "Safety hazard pin not found in pins array" });
+      }
+  
+      res.status(200).json({
+        message: "Hazard pin retrieved successfully",
+        hazardPin,
+      });
+    } catch (error) {
+      console.error("Error fetching hazard pin:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  };

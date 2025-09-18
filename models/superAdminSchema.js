@@ -2,34 +2,32 @@ import mongoose from "mongoose";
 
 // Pin Schema for mine map
 const PinSchema = new mongoose.Schema({
-  type: {
-    type: String,
-    enum: ["Hazard", "Progress", "SafetyNode"],
-    required: true
-  },
-  hazardLevel: {
-    type: String,
-    enum: ["Yellow", "Orange", "Red", "None"], // None for progress & safety nodes
-    default: "None"
-  },
-  coordinates: {
-    x: { type: Number, required: true }, // X position on 2D map
-    y: { type: Number, required: true }  // Y position on 2D map
-  },
-  description: {
-    type: String
-  },
-  image: {
-    type: String // store file path or cloud URL
-  },
-  voiceNote: {
-    type: String // file path or cloud URL
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
-});
+    type: {
+      type: String,
+      enum: ["Hazard", "Progress", "SafetyNode"],
+      required: true
+    },
+    hazardLevel: {
+      type: String,
+      enum: ["Yellow", "Orange", "Red", "None"],
+      default: "None"
+    },
+    coordinates: {
+      x: { type: Number, required: true },
+      y: { type: Number, required: true }
+    },
+    description: {
+      type: String
+    },
+    images: [{ type: String }], // ✅ array of images
+    voiceNote: {
+      type: String
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  });
 
 // Vehicle Schema
 const VehicleSchema = new mongoose.Schema({
