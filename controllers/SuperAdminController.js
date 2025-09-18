@@ -668,3 +668,85 @@ export const uploadMineMap = async (req, res) => {
       res.status(500).json({ message: "Internal Server Error" });
     }
   };
+
+  export const addProgressPin = async (req, res) => {
+    try {
+      const { type, coordinates, description, mined } = req.body;
+  
+      // ✅ Validate type
+      if (type !== "Progress") {
+        return res.status(400).json({ message: "Type must be 'Progress'" });
+      }
+  
+      // ✅ Validate coordinates
+      if (!coordinates || !coordinates.x || !coordinates.y) {
+        return res.status(400).json({ message: "Coordinates (x, y) are required" });
+      }
+  
+      // ✅ Validate mined value
+      if (mined === undefined || isNaN(mined)) {
+        return res.status(400).json({ message: "Mined value (number) is required" });
+      }
+  
+      // ✅ Inject SuperAdmin from JWT
+      const superAdmin = await SuperAdmin.findById(req.user.id);
+      if (!superAdmin) {
+        return res.status(404).json({ message: "SuperAdmin not found" });
+      }
+  
+      // Upload images (up to 5)
+      let imageUrls = [];
+      if (req.files?.images) {
+        for (const file of req.files.images) {
+          const uploaded = await new Promise((resolve, reject) => {
+            cloudinary.uploader.upload_stream(
+              { folder: "pins/images" },
+              (error, result) => {
+                if (error) reject(error);
+                else resolve(result);
+              }
+            ).end(file.buffer);
+          });
+          imageUrls.push(uploaded.secure_url);
+        }
+      }
+  
+      // Upload voice note (optional)
+      let voiceNoteUrl = null;
+      if (req.files?.voiceNote?.[0]) {
+        const uploaded = await new Promise((resolve, reject) => {
+          cloudinary.uploader.upload_stream(
+            { folder: "pins/voicenotes", resource_type: "auto" },
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          ).end(req.files.voiceNote[0].buffer);
+        });
+        voiceNoteUrl = uploaded.secure_url;
+      }
+  
+      // ✅ Create new Progress pin
+      const newPin = {
+        type,
+        coordinates,
+        description,
+        images: imageUrls,
+        voiceNote: voiceNoteUrl,
+        mined, // permanent mined value
+      };
+  
+      // Save to SuperAdmin
+      superAdmin.pins.push(newPin);
+      superAdmin.updatedAt = Date.now();
+      await superAdmin.save();
+  
+      return res.status(201).json({
+        message: "Progress pin added successfully",
+        pin: newPin,
+      });
+    } catch (error) {
+      console.error("AddProgressPin Error:", error);
+      return res.status(500).json({ message: "Internal Server Error" });
+    }
+  };

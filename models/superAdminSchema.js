@@ -23,6 +23,7 @@ const PinSchema = new mongoose.Schema({
     voiceNote: {
       type: String
     },
+    mined: { type: Number, default: 0 },
     createdAt: {
       type: Date,
       default: Date.now
