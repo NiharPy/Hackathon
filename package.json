@@ -1,0 +1,28 @@
+{
+  "name": "hackathon",
+  "version": "1.0.0",
+  "description": "A project for our hackathon",
+  "homepage": "https://github.com/NiharPy/Hackathon#readme",
+  "bugs": {
+    "url": "https://github.com/NiharPy/Hackathon/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NiharPy/Hackathon.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "mongodb": "^6.19.0",
+    "mongoose": "^8.18.1"
+  }
+}
