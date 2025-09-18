@@ -1,6 +1,14 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import SuperAdmin from "../models/superAdminSchema.js"; // adjust path as needed
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+const GOOGLE_API_KEY = GOOGLE_MAPS_API_KEY;
+
+// Optional: fail fast if missing
+if (!GOOGLE_API_KEY) {
+  console.error("[Config] Missing GOOGLE_MAPS_API_KEY / GOOGLE_API_KEY in environment");
+}
+const TICK_SEC_DEFAULT = 5;
 
 // Generate tokens
 const generateAccessToken = (id) => {
@@ -152,5 +160,326 @@ export const addVehicle = async (req, res) => {
       return res.status(400).json({ message: "Validation error", details: err.errors });
     }
     return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+const toQS = (obj) => new URLSearchParams(obj).toString();
+
+// 1) GET /api/transport/vehicles
+export const listVehicles = async (req, res) => {
+  try {
+    const superAdminId = req.user?.id;
+    if (!superAdminId) return res.status(401).json({ message: "Unauthorized" });
+
+    const admin = await SuperAdmin.findById(superAdminId).select("vehicles");
+    if (!admin) return res.status(404).json({ message: "SuperAdmin not found" });
+
+    return res.json({ vehicles: admin.vehicles });
+  } catch (e) {
+    console.error("listVehicles:", e);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// 2) GET /api/transport/places/:placeId  (auth-guarded; ID from JWT, not used further)
+export const placeDetails = async (req, res) => {
+  try {
+    const superAdminId = req.user?.id;
+    if (!superAdminId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { placeId } = req.params;
+    if (!placeId) return res.status(400).json({ message: "placeId required" });
+
+    const url =
+      `https://maps.googleapis.com/maps/api/place/details/json?` +
+      toQS({ place_id: placeId, fields: "geometry,name", key: GOOGLE_API_KEY });
+
+    const resp = await fetch(url);
+    const json = await resp.json();
+    const r = json?.result;
+    if (!r?.geometry?.location) return res.status(404).json({ message: "Place not found" });
+
+    return res.json({
+      name: r.name,
+      lat: r.geometry.location.lat,
+      lng: r.geometry.location.lng,
+    });
+  } catch (e) {
+    console.error("placeDetails:", e);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// Normalize destination from many possible body shapes
+function normalizeDestination(body = {}) {
+  const {
+    destination,
+    lat, lng, lon, long, latitude, longitude,
+    destLat, destLng, destLatitude, destLongitude,
+  } = body;
+
+  const latRaw =
+    destination?.lat ??
+    destination?.latitude ??
+    lat ?? latitude ?? destLat ?? destLatitude;
+
+  const lngRaw =
+    destination?.lng ??
+    destination?.lon ??
+    destination?.long ??
+    destination?.longitude ??
+    lng ?? lon ?? long ?? longitude ?? destLng ?? destLongitude;
+
+  const latNum = latRaw === undefined || latRaw === null ? NaN : Number(latRaw);
+  const lngNum = lngRaw === undefined || lngRaw === null ? NaN : Number(lngRaw);
+
+  if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return null;
+  return { lat: latNum, lng: lngNum };
+}
+
+// ========== FIXED CONTROLLER ==========
+const qs = (obj) => new URLSearchParams(obj).toString();
+
+async function gfetch(url) {
+  const r = await fetch(url);
+  const j = await r.json();
+  return j;
+}
+
+// Resolve destination from either { placeId } or { lat, lng }
+async function resolveDestination(dest) {
+  if (!dest) return null;
+
+  // Case A: placeId (from Google Autocomplete)
+  if (dest.placeId) {
+    const url =
+      "https://maps.googleapis.com/maps/api/place/details/json?" +
+      qs({
+        place_id: dest.placeId,
+        fields: "geometry,name",
+        key: GOOGLE_API_KEY,
+      });
+
+    const json = await gfetch(url);
+    if (json.status !== "OK") {
+      return { error: `Places error: ${json.status}`, details: json.error_message || null };
+    }
+    const loc = json.result?.geometry?.location;
+    if (!loc) return { error: "Place has no geometry" };
+    return { lat: Number(loc.lat), lng: Number(loc.lng), name: json.result?.name || null };
+  }
+
+  // Case B: raw coordinates
+  const latRaw =
+    dest.lat ?? dest.latitude ?? dest.destLat ?? dest.destLatitude;
+  const lngRaw =
+    dest.lng ?? dest.lon ?? dest.long ?? dest.longitude ?? dest.destLng ?? dest.destLongitude;
+
+  const lat = Number(latRaw);
+  const lng = Number(lngRaw);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  return { lat, lng, name: null };
+}
+
+// Build a Directions API URL for origin -> destination
+function directionsUrl(origin, destination) {
+  return (
+    "https://maps.googleapis.com/maps/api/directions/json?" +
+    qs({
+      origin: `${origin.lat},${origin.lng}`,
+      destination: `${destination.lat},${destination.lng}`,
+      mode: "driving",
+      key: GOOGLE_API_KEY,
+    })
+  );
+}
+
+// -- Controller -----------------------------------------------
+
+/**
+ * POST /api/SA/directions
+ *
+ * Body options:
+ *  A) Provide vehicle coordinates directly:
+ *     {
+ *       "vehicle": { "lat": 17.4300, "lng": 78.4900 },
+ *       "destination": { "placeId": "<from Autocomplete>" }   // or { "lat": ..., "lng": ... }
+ *     }
+ *
+ *  B) OR provide a registration number; we'll read the vehicle's lat/lng from DB:
+ *     {
+ *       "reg": "TRK-101",
+ *       "destination": { "placeId": "..." }                    // or { "lat":..., "lng":... }
+ *     }
+ *
+ * Response:
+ *  {
+ *    vehicle: {lat,lng},
+ *    destination: {lat,lng,name?},
+ *    polyline: "<encoded polyline>",
+ *    distanceMeters: 12345,
+ *    durationSeconds: 867,
+ *    etaText: "14 mins",
+ *    bounds: { northeast:{lat,lng}, southwest:{lat,lng} }   // for easy fitBounds on the map
+ *  }
+ */
+export const getDirectionsAndETA = async (req, res) => {
+  try {
+    if (!GOOGLE_MAPS_API_KEY) {
+      return res.status(500).json({ message: "Server misconfig: GOOGLE_MAPS_API_KEY missing" });
+    }
+
+    // 1) Determine origin (vehicle position)
+    let origin = null;
+
+    // Option A: vehicle coords provided directly
+    const vLatRaw =
+      req.body?.vehicle?.lat ??
+      req.body?.vehicle?.latitude ??
+      req.body?.lat ??
+      req.body?.latitude;
+    const vLngRaw =
+      req.body?.vehicle?.lng ??
+      req.body?.vehicle?.lon ??
+      req.body?.vehicle?.long ??
+      req.body?.vehicle?.longitude ??
+      req.body?.lng ??
+      req.body?.lon ??
+      req.body?.long ??
+      req.body?.longitude;
+
+    if (vLatRaw !== undefined && vLngRaw !== undefined) {
+      const vLat = Number(vLatRaw);
+      const vLng = Number(vLngRaw);
+      if (Number.isFinite(vLat) && Number.isFinite(vLng)) {
+        origin = { lat: vLat, lng: vLng };
+      }
+    }
+
+    // Option B: registration number -> pull from DB (needs JWT to know which SuperAdmin)
+    if (!origin) {
+      const reg = (req.body?.reg ?? req.body?.registrationNumber)?.toString().trim();
+      if (!reg) {
+        return res.status(400).json({
+          message:
+            "Provide vehicle {lat,lng} OR 'reg' (registrationNumber) to look up vehicle position",
+        });
+      }
+      const superAdminId = req.user?.id;
+      if (!superAdminId) return res.status(401).json({ message: "Unauthorized" });
+
+      const admin = await SuperAdmin.findById(superAdminId).select("vehicles");
+      if (!admin) return res.status(404).json({ message: "SuperAdmin not found" });
+
+      const v = admin.vehicles.find(
+        (x) => x.registrationNumber?.trim().toLowerCase() === reg.toLowerCase()
+      );
+      if (!v) return res.status(404).json({ message: "Vehicle not found" });
+
+      origin = { lat: Number(v.location.latitude), lng: Number(v.location.longitude) };
+      if (!Number.isFinite(origin.lat) || !Number.isFinite(origin.lng)) {
+        return res.status(400).json({ message: "Vehicle has no valid location" });
+      }
+    }
+
+    // 2) Resolve destination (placeId or lat/lng)
+    const dest = await resolveDestination(req.body?.destination);
+    if (!dest || dest.error) {
+      return res.status(400).json({
+        message: dest?.error || "destination required (placeId or {lat,lng})",
+        details: dest?.details || null,
+      });
+    }
+
+    // 3) Get directions & ETA
+    const json = await gfetch(directionsUrl(origin, dest));
+    if (json.status && json.status !== "OK") {
+      return res.status(400).json({
+        message: "Google Directions error",
+        status: json.status,
+        error: json.error_message || null,
+      });
+    }
+
+    const route = json?.routes?.[0];
+    const leg = route?.legs?.[0];
+    if (!route || !leg) return res.status(400).json({ message: "No route found" });
+
+    // 4) Respond with everything the UI needs
+    return res.json({
+      vehicle: origin,
+      destination: { lat: dest.lat, lng: dest.lng, name: dest.name || null },
+      polyline: route.overview_polyline?.points || null,
+      distanceMeters: leg.distance?.value ?? null,   // remaining distance from current location
+      durationSeconds: leg.duration?.value ?? null,  // ETA in seconds
+      etaText: leg.duration?.text ?? null,
+      bounds: route.bounds || null,                  // use on client for fitBounds
+    });
+  } catch (err) {
+    console.error("getDirectionsAndETA error:", err);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+
+// 4) GET /api/transport/track/stream/:reg?destLat=..&destLng=..&intervalSec=5
+export const streamTracking = async (req, res) => {
+  const superAdminId = req.user?.id;
+  if (!superAdminId) return res.status(401).json({ message: "Unauthorized" });
+
+  try {
+    const { reg } = req.params;
+    const destLat = Number(req.query.destLat);
+    const destLng = Number(req.query.destLng);
+    const intervalSec = Math.max(2, Number(req.query.intervalSec) || TICK_SEC_DEFAULT);
+
+    if (!reg || Number.isNaN(destLat) || Number.isNaN(destLng))
+      return res.status(400).json({ message: "reg, destLat, destLng are required" });
+
+    // SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    const destination = { lat: destLat, lng: destLng };
+    let timer;
+
+    const tick = async () => {
+      try {
+        const admin = await SuperAdmin.findById(superAdminId).select("vehicles");
+        if (!admin) { res.write(`event: error\ndata: ${JSON.stringify({ message: "SuperAdmin not found" })}\n\n`); return; }
+        const v = admin.vehicles.find((x) => x.registrationNumber === reg);
+        if (!v) { res.write(`event: error\ndata: ${JSON.stringify({ message: "Vehicle not found" })}\n\n`); return; }
+
+        const origin = { lat: v.location.latitude, lng: v.location.longitude };
+        const resp = await fetch(directionsUrl(origin, destination));
+        const data = await resp.json();
+        const route = data?.routes?.[0];
+        const leg = route?.legs?.[0];
+
+        const payload = {
+          vehicle: origin,
+          destination,
+          polyline: route?.overview_polyline?.points || null,
+          distanceMeters: leg?.distance?.value ?? null,
+          durationSeconds: leg?.duration?.value ?? null,
+          etaText: leg?.duration?.text ?? null,
+          updatedAt: new Date().toISOString(),
+        };
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      } catch (err) {
+        console.error("SSE tick:", err);
+        res.write(`event: error\ndata: ${JSON.stringify({ message: "tick_failed" })}\n\n`);
+      }
+    };
+
+    await tick();
+    timer = setInterval(tick, intervalSec * 1000);
+    req.on("close", () => clearInterval(timer));
+  } catch (e) {
+    console.error("streamTracking:", e);
+    if (!res.headersSent) return res.status(500).json({ message: "Internal Server Error" });
   }
 };
