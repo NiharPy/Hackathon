@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import Admin from "../models/AdminSchema.js";
 import superAdmin from "../models/superAdminSchema.js";
+import Worker from "../models/WorkerSchema.js";
 
 /* ---------- SIGNUP ---------- */
 export const adminSignup = async (req, res) => {
@@ -45,3 +46,34 @@ export const adminLogin = async (req, res) => {
   }
 };
 
+
+export const createWorker = async (req, res) => {
+  try {
+    const { name, role } = req.body;
+
+    // ✅ coming from authAdmin middleware
+    const adminId = req.adminId;
+
+    if (!name || !role) {
+      return res.status(400).json({ message: "Name and role are required" });
+    }
+
+    const newWorker = new Worker({
+      name,
+      role,
+      admin: adminId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    await newWorker.save();
+
+    res.status(201).json({
+      message: "Worker created successfully",
+      worker: newWorker,
+    });
+  } catch (error) {
+    console.error("CreateWorker Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
