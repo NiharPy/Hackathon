@@ -88,3 +88,69 @@ export const signupSuperAdmin = async (req, res) => {
       res.status(500).json({ message: "Internal Server Error" });
     }
   };
+
+
+/**
+ * POST /api/transport/:superAdminId/vehicles
+ * Body: { registrationNumber, driverName, latitude, longitude }
+ */
+export const addVehicle = async (req, res) => {
+  try {
+    // Prefer JWT → req.user.id (set by auth middleware)
+    const superAdminId = req.user?.id;
+    if (!superAdminId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { registrationNumber, driverName, latitude, longitude } = req.body;
+
+    // Basic validation
+    if (
+      !registrationNumber ||
+      !driverName ||
+      latitude == null ||
+      longitude == null
+    ) {
+      return res.status(400).json({
+        message:
+          "registrationNumber, driverName, latitude and longitude are required",
+      });
+    }
+
+    // Load the owner document
+    const admin = await SuperAdmin.findById(superAdminId).select("vehicles");
+    if (!admin) {
+      return res.status(404).json({ message: "SuperAdmin not found" });
+    }
+
+    // Prevent duplicate registration numbers per SuperAdmin
+    const regNorm = String(registrationNumber).trim().toLowerCase();
+    const exists = admin.vehicles.some(
+      (v) => v.registrationNumber.trim().toLowerCase() === regNorm
+    );
+    if (exists) {
+      return res
+        .status(409)
+        .json({ message: "Vehicle with this registration number already exists" });
+    }
+
+    // Push the new vehicle
+    admin.vehicles.push({
+      registrationNumber: String(registrationNumber).trim(),
+      driverName,
+      location: { latitude: Number(latitude), longitude: Number(longitude) },
+      assignedAt: new Date(),
+    });
+
+    await admin.save();
+
+    const vehicle = admin.vehicles.at(-1);
+    return res.status(201).json({ message: "Vehicle added", vehicle });
+  } catch (err) {
+    console.error("addVehicle error:", err);
+    if (err.name === "ValidationError") {
+      return res.status(400).json({ message: "Validation error", details: err.errors });
+    }
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
