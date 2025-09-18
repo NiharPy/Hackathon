@@ -12,13 +12,17 @@ const PORT = process.env.PORT || 5555;
 
 app.use(
     cors({
-      origin: "http://localhost:3000",
+      origin: "http://localhost:3000", // 🔥 frontend origin
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       credentials: true,
     })
   );
   
-  
+  // ✅ Handle Preflight for all routes
+  app.options("*", cors({
+    origin: "http://localhost:3000",
+    credentials: true,
+  }));
 
 mongoose.connect(mongoConfig.mongoUri)
   .then(() => console.log('✅ MongoDB connected successfully'))

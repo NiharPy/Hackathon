@@ -1,33 +1,67 @@
 import mongoose from "mongoose";
 
-// Pin Schema for mine map
-const PinSchema = new mongoose.Schema({
+// Pin Schema for mine map (only Hazard + Progress here)
+const SimulatorEventSchema = new mongoose.Schema({
     type: {
       type: String,
-      enum: ["Hazard", "Progress", "SafetyNode"],
-      required: true
+      enum: ["Methane", "WorkerDistress", "Temperature"],
+      required: true,
     },
-    hazardLevel: {
+    level: {
       type: String,
-      enum: ["Yellow", "Orange", "Red", "None"],
-      default: "None"
+      enum: ["Yellow", "Orange", "Red"],
+      required: true,
     },
-    coordinates: {
-      x: { type: Number, required: true },
-      y: { type: Number, required: true }
-    },
-    description: {
-      type: String
-    },
-    images: [{ type: String }], // ✅ array of images
-    voiceNote: {
-      type: String
-    },
-    mined: { type: Number, default: 0 },
+    value: { type: Number }, // methane % or temperature
+    presses: { type: Number }, // worker distress presses
     createdAt: {
       type: Date,
-      default: Date.now
-    }
+      default: Date.now,
+    },
+  });
+
+
+const PinSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ["Hazard", "Progress"], // removed SafetyNode
+    required: true
+  },
+  hazardLevel: {
+    type: String,
+    enum: ["Yellow", "Orange", "Red", "None"],
+    default: "None"
+  },
+  coordinates: {
+    x: { type: Number, required: true },
+    y: { type: Number, required: true }
+  },
+  description: {
+    type: String
+  },
+  images: [{ type: String }], 
+  voiceNote: {
+    type: String
+  },
+  mined: { type: Number, default: 0 },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+// ✅ Separate SafetyNode Schema
+const SafetyNodeSchema = new mongoose.Schema({
+    nodeName: { type: String, required: true },
+    coordinates: {
+      x: { type: Number, required: true },
+      y: { type: Number, required: true },
+    },
+    simulatorEvents: [SimulatorEventSchema], // ✅ Events attached by Simulator
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
   });
 
 // Vehicle Schema
@@ -65,15 +99,16 @@ const SuperAdminSchema = new mongoose.Schema({
     required: true
   },
   refreshToken: {
-    type: String, // JWT refresh token for session management
+    type: String,
     default: null
   },
   mineMap: {
-    type: String, // path or cloud storage URL for uploaded 2D mine map image
+    type: String,
     required: false
   },
-  pins: [PinSchema], // all pins placed by the SuperAdmin
-  vehicles: [VehicleSchema], // vehicles managed by SuperAdmin
+  pins: [PinSchema],          // Hazard + Progress pins
+  safetyNodes: [SafetyNodeSchema], // ✅ separate array for Safety Nodes
+  vehicles: [VehicleSchema], 
   createdAt: {
     type: Date,
     default: Date.now
