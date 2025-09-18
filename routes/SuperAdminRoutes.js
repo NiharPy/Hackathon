@@ -1,5 +1,5 @@
 import express from 'express';
-import {loginSuperAdmin, signupSuperAdmin, addVehicle, uploadMineMap, addHazardPin, getSafetyHazardPin, listVehicles, placeDetails, getDirectionsAndETA, streamTracking, addProgressPin, getProgressPin} from '../controllers/SuperAdminController.js';
+import {loginSuperAdmin, signupSuperAdmin, addVehicle, uploadMineMap, addHazardPin, getSafetyHazardPin, listVehicles, placeDetails, getDirectionsAndETA, streamTracking, addProgressPin, getProgressPin, getMineMapWithPins} from '../controllers/SuperAdminController.js';
 import authSuperAdmin from "../middleware/auth-superadmin.js";
 import upload from "../middleware/multer.js";
 const router = express.Router();
@@ -37,5 +37,6 @@ router.get("/vehicles",authSuperAdmin ,listVehicles);
 router.get("/places/:placeId",authSuperAdmin ,placeDetails);
 router.post("/directions", authSuperAdmin, getDirectionsAndETA);
 router.get("/track/stream/:reg",authSuperAdmin ,streamTracking);
+router.get("/mine-map", authSuperAdmin, getMineMapWithPins);
 
 export default router;

@@ -788,3 +788,32 @@ export const uploadMineMap = async (req, res) => {
       res.status(500).json({ message: "Internal Server Error" });
     }
   };
+
+
+  export const getMineMapWithPins = async (req, res) => {
+    try {
+      const superAdminId = req.user.id; // ✅ Injected from JWT middleware
+  
+      // Find the SuperAdmin
+      const superAdmin = await SuperAdmin.findById(superAdminId).select("mineMap pins");
+      if (!superAdmin) {
+        return res.status(404).json({ message: "SuperAdmin not found" });
+      }
+  
+      // Separate pins by type
+      const hazardPins = superAdmin.pins.filter(pin => pin.type === "Hazard");
+      const progressPins = superAdmin.pins.filter(pin => pin.type === "Progress");
+  
+      res.status(200).json({
+        message: "Mine map and pins retrieved successfully",
+        mineMap: superAdmin.mineMap,
+        pins: {
+          hazard: hazardPins,
+          progress: progressPins,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching mine map with pins:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
