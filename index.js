@@ -5,9 +5,18 @@ import mongoose from 'mongoose';
 import SuperAdminRoutes from './routes/SuperAdminRoutes.js';
 import AdminRoutes from './routes/AdminRoutes.js';
 import SimulatorRoutes from './routes/SimulatorRoutes.js';
+import cors from "cors";
 
 const app = express();
 const PORT = process.env.PORT || 5555;
+
+app.use(
+    cors({
+      origin: "http://localhost:3000",
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      credentials: true, // if you want to allow cookies or auth headers
+    })
+  );
 
 mongoose.connect(mongoConfig.mongoUri)
   .then(() => console.log('✅ MongoDB connected successfully'))

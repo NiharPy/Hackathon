@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import SuperAdmin from "../models/superAdminSchema.js"; // adjust path as needed
 import cloudinary from "../config/cloudinary.js";
+import mongoose from "mongoose";
 
 // Generate tokens
 const generateAccessToken = (id) => {
@@ -302,5 +303,40 @@ export const uploadMineMap = async (req, res) => {
     } catch (error) {
       console.error("AddHazardPin Error:", error);
       return res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
+
+
+  export const getSafetyHazardPin = async (req, res) => {
+    try {
+      const { pinId } = req.params;
+  
+      // Validate MongoDB ObjectId
+      if (!mongoose.Types.ObjectId.isValid(pinId)) {
+        return res.status(400).json({ message: "Invalid hazard pin ID" });
+      }
+  
+      // Find the SuperAdmin document that contains this pin
+      const superAdmin = await SuperAdmin.findOne({ "pins._id": pinId });
+  
+      if (!superAdmin) {
+        return res.status(404).json({ message: "Safety hazard pin not found" });
+      }
+  
+      // Find the pin in the pins array
+      const hazardPin = superAdmin.pins.id(pinId);
+  
+      // Extra check (should not be necessary, but safe)
+      if (!hazardPin) {
+        return res.status(404).json({ message: "Safety hazard pin not found in pins array" });
+      }
+  
+      res.status(200).json({
+        message: "Hazard pin retrieved successfully",
+        hazardPin,
+      });
+    } catch (error) {
+      console.error("Error fetching hazard pin:", error);
+      res.status(500).json({ message: "Internal Server Error" });
     }
   };

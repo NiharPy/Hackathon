@@ -1,5 +1,5 @@
 import express from 'express';
-import {loginSuperAdmin, signupSuperAdmin, addVehicle, uploadMineMap, addHazardPin} from '../controllers/SuperAdminController.js';
+import {loginSuperAdmin, signupSuperAdmin, addVehicle, uploadMineMap, addHazardPin, getSafetyHazardPin} from '../controllers/SuperAdminController.js';
 import authSuperAdmin from "../middleware/auth-superadmin.js";
 import upload from "../middleware/multer.js";
 const router = express.Router();
@@ -22,4 +22,6 @@ router.post(
   ]),
   addHazardPin
 );
+router.get("/hazard/:pinId", authSuperAdmin,getSafetyHazardPin);
+
 export default router;
