@@ -79,6 +79,63 @@ export const loginSuperAdmin = async (req, res) => {
       res.status(500).json({ message: "Internal Server Error" });
     }
   };
+
+  export const refreshSuperAdminToken = async (req, res) => {
+    try {
+      const { refreshToken } = req.cookies; // assuming sent as httpOnly cookie
+      if (!refreshToken) {
+        return res.status(401).json({ message: "Refresh token missing" });
+      }
+  
+      // Find the SuperAdmin associated with this refresh token
+      const superAdmin = await SuperAdmin.findOne({ refreshToken });
+      if (!superAdmin) {
+        return res.status(403).json({ message: "Invalid refresh token" });
+      }
+  
+      // Verify refresh token
+      jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, (err, decoded) => {
+        if (err || decoded.id !== superAdmin._id.toString()) {
+          return res.status(403).json({ message: "Invalid refresh token" });
+        }
+  
+        // Generate a new access token
+        const accessToken = generateAccessToken(superAdmin._id);
+  
+        // Optionally, you can rotate the refresh token
+        const newRefreshToken = generateRefreshToken(superAdmin._id);
+        superAdmin.refreshToken = newRefreshToken;
+        superAdmin.save();
+  
+        // Set cookies
+        res.cookie("access_token", accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "strict",
+          maxAge: 15 * 60 * 1000, // 15 minutes
+        });
+  
+        res.cookie("refresh_token", newRefreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "strict",
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        });
+  
+        // Send response
+        res.status(200).json({
+          message: "Token refreshed successfully",
+          tokens: {
+            accessToken,
+            refreshToken: newRefreshToken,
+          },
+        });
+      });
+    } catch (error) {
+      console.error("Refresh token error:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
   
 
 export const signupSuperAdmin = async (req, res) => {
@@ -814,6 +871,41 @@ export const uploadMineMap = async (req, res) => {
       });
     } catch (error) {
       console.error("Error fetching mine map with pins:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  };
+
+  export const addSafetyNode = async (req, res) => {
+    try {
+      const { nodeName, coordinates } = req.body;
+  
+      if (!coordinates || coordinates.x == null || coordinates.y == null) {
+        return res.status(400).json({ message: "Coordinates (x, y) are required" });
+      }
+  
+      // 👇 Extracted from JWT middleware
+      const superAdminId = req.user.id;
+  
+      const superAdmin = await SuperAdmin.findById(superAdminId);
+      if (!superAdmin) {
+        return res.status(404).json({ message: "SuperAdmin not found" });
+      }
+  
+      const newNode = {
+        nodeName,
+        coordinates,
+      };
+  
+      superAdmin.safetyNodes.push(newNode);
+      superAdmin.updatedAt = Date.now();
+      await superAdmin.save();
+  
+      res.status(201).json({
+        message: "Safety Node added successfully",
+        node: newNode,
+      });
+    } catch (error) {
+      console.error("AddSafetyNode Error:", error);
       res.status(500).json({ message: "Internal Server Error" });
     }
   };

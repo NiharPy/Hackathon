@@ -1,25 +1,5 @@
 import mongoose from "mongoose";
-
-// Pin Schema for mine map (only Hazard + Progress here)
-const SimulatorEventSchema = new mongoose.Schema({
-    type: {
-      type: String,
-      enum: ["Methane", "WorkerDistress", "Temperature"],
-      required: true,
-    },
-    level: {
-      type: String,
-      enum: ["Yellow", "Orange", "Red"],
-      required: true,
-    },
-    value: { type: Number }, // methane % or temperature
-    presses: { type: Number }, // worker distress presses
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-  });
-
+import SimulatorEventSchema from "./SimulatorSchema.js";
 
 const PinSchema = new mongoose.Schema({
   type: {
@@ -51,13 +31,21 @@ const PinSchema = new mongoose.Schema({
 });
 
 // ✅ Separate SafetyNode Schema
-const SafetyNodeSchema = new mongoose.Schema({
+export const SafetyNodeSchema = new mongoose.Schema({
     nodeName: { type: String, required: true },
     coordinates: {
       x: { type: Number, required: true },
       y: { type: Number, required: true },
     },
-    simulatorEvents: [SimulatorEventSchema], // ✅ Events attached by Simulator
+  
+    // 👇 Optional fields (set by Simulator/Admin later)
+    description: { type: String },
+    images: [{ type: String }],
+    voiceNote: { type: String },
+  
+    // 👇 Simulator updates
+    simulatorEvents: [SimulatorEventSchema],
+  
     createdAt: {
       type: Date,
       default: Date.now,

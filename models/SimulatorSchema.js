@@ -1,41 +1,22 @@
 import mongoose from "mongoose";
 
-const SimulatorSchema = new mongoose.Schema({
-  superAdmin: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "SuperAdmin",
-    required: true
+const SimulatorEventSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ["Methane", "WorkerDistress", "Temperature"],
+    required: true,
   },
-  safetyNodePin: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true
+  level: {
+    type: String,
+    enum: ["Yellow", "Orange", "Red"],
+    required: true,
   },
-  workerDistress: {
-    type: Number,
-    default: 0, // percentage or severity level
-    min: 0,
-    max: 100
-  },
-  methaneBuildup: {
-    type: Number,
-    default: 0, // ppm or relative scale
-    min: 0,
-    max: 100
-  },
-  temperatureIncrease: {
-    type: Number,
-    default: 0, // Celsius increase or relative scale
-    min: 0,
-    max: 100
-  },
+  value: { type: Number }, // methane % or temperature
+  presses: { type: Number }, // worker distress presses
   createdAt: {
     type: Date,
-    default: Date.now
+    default: Date.now,
   },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  }
 });
 
-export default mongoose.model("Simulator", SimulatorSchema);
+export default SimulatorEventSchema;
